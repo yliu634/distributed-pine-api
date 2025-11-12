@@ -1,0 +1,9 @@
+keys:
+  sk-test-tier-a:
+    request_per_minute: 200000
+    input_tokens_per_minute: 2000000
+    output_tokens_per_minute: 1000000
+  sk-test-tier-b:
+    request_per_minute: 20000
+    input_tokens_per_minute: 2000000
+    output_tokens_per_minute: 1000000
