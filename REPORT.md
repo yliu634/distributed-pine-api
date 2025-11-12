@@ -25,6 +25,12 @@
 - 典型瓶颈一是应用框架（Starlette + orjson）自身的解析/序列化/业务逻辑；二是 Redis RTT 与 Lua 执行时间。可以通过设置 `BYPASS_LIMITER=1` 暂时跳过 Redis，若吞吐明显提升，则 Redis 是瓶颈，否则就是框架本身。
 - 也可以结合 `redis-cli --latency`、`SLOWLOG`, 以及 `py-spy` / `perf` 采样来定位热点：Redis 延迟大说明需要本地化或分片；CPU 核被 Starlette 占满则意味着需要更轻量的 ASGI 或多节点扩容。
 
+## 性能与可扩展性分析
+- **时间复杂度**：限流路径为 O(1)。Lua 脚本每次只在窗口范围内的常数级键上执行 `ZRANGEBYSCORE`（移除窗口外桶）、`HINCRBY`、`INCRBY` 等命令，窗口大小固定（秒级），因此单次请求的 Redis 开销与历史请求数量无关。
+- **空间复杂度**：每个 API key 每项指标最多保留 `window_seconds` 个桶（如 60 个 1 秒桶），每个桶对应一条 ZSET 记录和一个 HASH 字段，空间随窗口长度线性增长，通过 TTL 自动清理。
+- **横向扩展**：HTTP 节点无状态，可随意加减进程或机器，全部指向同一 Redis 即可共享限流状态；当单实例 Redis 成为瓶颈时，可以按 API key 做哈希分片或迁到 Redis Cluster，把写入分摊到多核。
+- **纵向扩展**：单进程可配合 `uvloop`、`httptools`、`--processes` 等方式充分利用 CPU；若仍无法满足需求，可用更轻量的 ASGI 框架或其他语言（Go/Rust）重写热路径。
+
 ## 运维建议
 - Redis 尽量使用本地或 Unix Socket，确保 `redis-cli --latency` 小于 0.3 ms，否则 Lua 执行延迟会成为主瓶颈。
 - 以 `uvicorn app.main:app --loop uvloop --http httptools --no-access-log` 启动节点，并把 `ulimit -n` 提升到几万以支撑高并发连接。
